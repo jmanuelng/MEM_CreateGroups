@@ -13,7 +13,6 @@
 
 
 To do:
-    - Ask confirmation before each group creation
     - Add parameters for filepath
     - Add parameters to skip verification
 
@@ -22,6 +21,7 @@ To do:
 #region Settings
 
 $Error.Clear()
+$errMessage = ""
 $t = Get-Date
 $ImportPath = ".\"
 $ImportFilename = "MEM_CreateGroups.csv"
@@ -166,43 +166,56 @@ foreach ($Group in $GroupsObj) {
             $GroupDesc = $Group.GroupDescription
             $GroupQuery = $Group.GroupMembershipRule
             $GroupOwn = Find-AzureADUser ($Group.GroupOwner)
+            $confirmGroup = "N"
     
         }
         else {
             
-            Write-Host "Unable to create Group. `nGroup definition in file should specify rules and name. Please verify files and headers in file" -ForegroundColor Red
+            Write-Host "Can not create Group. `nGroup definition in file should specify rules and name. Please verify files and headers in file" -ForegroundColor Red
             continue
         }
     
+        $confirmGroup = $(Write-Host "`tPlease confirm that you want to create Azure AD Group ""$Groupname"" (Y/N)?: " -ForegroundColor Green -NoNewline; Read-Host)
        
-        try {
+        if ($confirmGroup -eq "Y") {
 
-            $AzureGroup = New-AzureADMSGroup `
-            -DisplayName "$Groupname" `
-            -Description "$GroupDesc" `
-            -MailEnabled $false `
-            -SecurityEnabled $true `
-            -MailNickname "$($Groupname.replace(' ',''))" `
-            -GroupTypes "DynamicMembership" `
-            -MembershipRule "$GroupQuery" `
-            -MembershipRuleProcessingState 'On' `
-            -ErrorAction SilentlyContinue
-            
+            try {
+
+                $AzureGroup = New-AzureADMSGroup `
+                -DisplayName "$Groupname" `
+                -Description "$GroupDesc" `
+                -MailEnabled $false `
+                -SecurityEnabled $true `
+                -MailNickname "$($Groupname.replace(' ',''))" `
+                -GroupTypes "DynamicMembership" `
+                -MembershipRule "$GroupQuery" `
+                -MembershipRuleProcessingState 'On' `
+                -ErrorAction SilentlyContinue
+                
+            }
+            catch {
+                
+                # If error, notify and continue.
+                $errMessage = $_.Exception.ErrorContent.Message
+                Write-Host "`tUnable to create $Groupname. `n`tERROR: $errMessage" -ForegroundColor Red
+    
+                continue
+            }
+    
+    
+            # Define Owner for the new Dynamic Group
+            if ($null -ne $GroupOwn) {
+                Add-AzureADGroupOwner -ObjectId "$($AzureGroup.Id)" -RefObjectId "$($GroupOwn.ObjectId)"
+            }
+
+            Write-Host "...Successfully created Azure AD Group $Groupname"
+
         }
-        catch {
-            
-            # If error, notify and continue.
-            $errMessage = $_.Exception.ErrorContent.Message
-            Write-Host "`tUnable to create $Groupname. `n`tERROR: $errMessage" -ForegroundColor Red
 
-            continue
+        else {
+            Write-Host "`tAzure AD Group $Groupname was not created." -ForegroundColor Yellow
         }
 
-
-        # Define Owner for the new Dynamic Group
-        if ($null -ne $GroupOwn) {
-            Add-AzureADGroupOwner -ObjectId "$($AzureGroup.Id)" -RefObjectId "$($GroupOwn.ObjectId)"
-        }
         
     }
 
