@@ -8,7 +8,7 @@
     Import filename and path should be provided as a parameter. Default path is the execution path, default filename "MEM_CreateGroups.csv"
     Import file should, at least, contain the following headers (names should be exactly like that): "GroupType", "GroupDisplayName", "GroupsDescription", "GroupMembershipType", "GroupsMembershipRule", "GroupOwner" 
 
-    Script created or based on the following:
+    Script created or based on Alex Durante's (tw:@ADurrante) Blog:
     Source: https://letsconfigmgr.com/bulk-create-intune-groups-script/#The_Script
 
 
@@ -162,7 +162,7 @@ foreach ($Group in $GroupsObj) {
 
         if (-not (($null -eq $Group.GroupDisplayName) -and ($null -eq $Group.GroupMembershipRules))) {
             
-            $Groupname = "DELETE_$($Group.GroupDisplayName)"
+            $Groupname = $Group.GroupDisplayName
             $GroupDesc = $Group.GroupDescription
             $GroupQuery = $Group.GroupMembershipRule
             $GroupOwn = Find-AzureADUser ($Group.GroupOwner)
