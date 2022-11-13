@@ -38,3 +38,4 @@ $RECYCLE.BIN/
 
 # Demo CSV file
 MEM_CreateGroups.csv
+MEM_CreateGroups*.csv
