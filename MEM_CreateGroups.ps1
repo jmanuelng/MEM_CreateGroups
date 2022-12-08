@@ -1,9 +1,9 @@
 <#
 
-.Description
+.DESCRIPTION
     Create Dynamic AzureAD groups from CSV file.
 
-.Notes
+.NOTES
 
     Import filename and path should be provided as a parameter. Default path is the execution path, default filename "MEM_CreateGroups.csv"
     Import file should, at least, contain the following headers (names should be exactly like that): "GroupType", "GroupDisplayName", "GroupsDescription", "GroupMembershipType", "GroupsMembershipRule", "GroupOwner" 
@@ -12,9 +12,9 @@
     Source: https://letsconfigmgr.com/bulk-create-intune-groups-script/#The_Script
 
 
-To do:
-    - Add parameters for filepath
-    - Add parameters to skip verification
+    To do:
+        - Add parameters for filepath
+        - Add parameters to skip verification
 
 #>
 
