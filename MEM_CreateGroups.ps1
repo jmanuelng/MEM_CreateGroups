@@ -1,7 +1,7 @@
 <#
 
 .DESCRIPTION
-    Create Dynamic AzureAD groups from CSV file.
+    Create Dynamic AzureAD groups from CSV file. Can use "GroupsFile" as parameter for the name of CSV file with the list of groups to create, file should be on same directory.
 
 .NOTES
 
@@ -12,20 +12,31 @@
     Script created or based on Alex Durante's (tw:@ADurrante) Blog:
     Source: https://letsconfigmgr.com/bulk-create-intune-groups-script/#The_Script
 
+.EXAMPLE
 
-    To do:
-        - Add parameters for filepath
-        - Add parameters to skip verification
+    .\MEM_CreateGroups.ps1 -GroupsFile "MEM_CreateGroups.csv"
+    Creates all groups listed un "MEM_Groups.csv" file
+
+    .\MEM_CreateGroups.ps1 -GroupsFile "MEM_CreateGroups.csv" -GroupsConfirm "Y"
+    Creates groups in "MEM_Groups.csv" file, does not request cofirmation before creating groups.
+
 
 #>
 
 #region Settings
 
+param (
+        [Parameter()]
+        [string]$GroupsFile = "MEM_CreateGroups.csv",
+        # Confirm has to be "N" to skip confirmation for each Group to be created
+        [string]$GroupsConfirm = "Y"
+    )
+
 $Error.Clear()
 $errMessage = ""
 $t = Get-Date
 $ImportPath = ".\"
-$ImportFilename = "MEM_CreateGroups.csv"
+$ImportFilename = $GroupsFile
 $GroupsObj = New-Object PSObject
 
 #Give me some space, please
@@ -142,6 +153,7 @@ try {
     
 }
 catch {
+    Write-Host "Error importing $ImportFileName.`nPlease verify File name and/or extension.`nYou can use parameter ""GroupsFile""  to specify file name. `n`n" -ForegroundColor Red
     Write-Error $error.Exception.Message
     Exit 1
 }
@@ -156,8 +168,9 @@ $GroupsObj | Select-Object GroupType, GroupDisplayName, GroupDescription, GroupM
 
 foreach ($Group in $GroupsObj) {
 
-    $confirmGroup = $null
-    $GroupTypes = $null
+    [string]$confirmGroup = $null
+    [string]$GroupTypes = $null
+    [bool]$GroupRoleAssign = $false
 
     if (($Group.GroupMembershipType -eq "DU") -or ($Group.GroupMembershipType -eq "DD") -or ($Group.GroupMembershipType -eq "AA")) {
 
@@ -170,7 +183,11 @@ foreach ($Group in $GroupsObj) {
             $GroupDesc = $Group.GroupDescription
             $GroupOwn = Find-AzureADUser ($Group.GroupOwner)
             $confirmGroup = "N"
-    
+
+            if ($Group.GroupAadRoles -eq "YES") {
+                $GroupRoleAssign = $true
+            }
+        
         }
         else {
             
@@ -197,8 +214,13 @@ foreach ($Group in $GroupsObj) {
         }
 
         #Get confirmation before creating group
-        $confirmGroup = $(Write-Host "`tPlease confirm that you want to create Azure AD Group ""$Groupname"" (Y/N)?: " -ForegroundColor Green -NoNewline; Read-Host)
-       
+
+        if ($Confirm -eq "N") {
+            $confirmGroup = "Y"
+        }
+        else {
+            $confirmGroup = $(Write-Host "`tPlease confirm that you want to create Azure AD Group ""$Groupname"" (Y/N)?: " -ForegroundColor Green -NoNewline; Read-Host)
+        }
 
         if ($confirmGroup -eq "Y") {
 
@@ -212,6 +234,7 @@ foreach ($Group in $GroupsObj) {
                     -Description "$GroupDesc" `
                     -MailEnabled $false `
                     -SecurityEnabled $true `
+                    -IsAssignableToRole $GroupRoleAssign `
                     -MailNickname "$($Groupname.replace(' ',''))" `
                     -ErrorAction Stop
 
@@ -223,6 +246,7 @@ foreach ($Group in $GroupsObj) {
                     -Description "$GroupDesc" `
                     -MailEnabled $false `
                     -SecurityEnabled $true `
+                    -IsAssignableToRole $GroupRoleAssign `
                     -MailNickname "$($Groupname.replace(' ',''))" `
                     -GroupTypes $GroupTypes `
                     -MembershipRule "$GroupQuery" `
@@ -242,7 +266,7 @@ foreach ($Group in $GroupsObj) {
             }
     
     
-            # Define Owner for the new Dynamic Group
+            # Define Owner for the new Group
             if ($null -ne $GroupOwn) {
                 Add-AzureADGroupOwner -ObjectId "$($AzureGroup.Id)" -RefObjectId "$($GroupOwn.ObjectId)"
             }
