@@ -6,7 +6,8 @@
 .NOTES
 
     Import filename and path should be provided as a parameter. Default path is the execution path, default filename "MEM_CreateGroups.csv"
-    Import file should, at least, contain the following headers (names should be exactly like that): "GroupType", "GroupDisplayName", "GroupsDescription", "GroupMembershipType", "GroupsMembershipRule", "GroupOwner" 
+    Import file should, at least, contain the following headers (names should be exactly like that): "GroupType", "GroupDisplayName", "GroupsDescription", "GroupMembershipType", "GroupsMembershipRule", "GroupOwner"
+    The only strings accepted for "GroupMembershipType" are "AA" for assigned groups, "DD" for Dynamic Device groups and "DU" for Dynamic User groups.
 
     Script created or based on Alex Durante's (tw:@ADurrante) Blog:
     Source: https://letsconfigmgr.com/bulk-create-intune-groups-script/#The_Script
@@ -71,7 +72,7 @@ function ConnectToAAD {
     Import-Module AzureADPreview -Force
     
     # Sign into Azure AD
-    Write-Host "Please log into AzureAD" -ForegroundColo Green
+    Write-Host "Please log into AzureAD" -ForegroundColor Green
     Connect-AzureAD
     
 }
@@ -148,7 +149,6 @@ catch {
 #Connect to Azure AD
 ConnectToAAD
 
-Write-Warning "Script only creates Dynamic Groups, as defined by GroupMemberhip ""DD"" or ""DU"""
 
 $GroupsObj | Select-Object GroupType, GroupDisplayName, GroupDescription, GroupMembershipType, GroupMembershipRule, GroupOwner | Format-Table
 
@@ -156,41 +156,80 @@ $GroupsObj | Select-Object GroupType, GroupDisplayName, GroupDescription, GroupM
 
 foreach ($Group in $GroupsObj) {
 
-    if (($Group.GroupMembershipType -eq "DU") -or ($Group.GroupMembershipType -eq "DD")) {
+    $confirmGroup = $null
+    $GroupTypes = $null
 
-        Write-Host "Creating Azure AD Dynamic Group: $($Group.GroupDisplayName)" -ForegroundColor Green
+    if (($Group.GroupMembershipType -eq "DU") -or ($Group.GroupMembershipType -eq "DD") -or ($Group.GroupMembershipType -eq "AA")) {
 
-        if (-not (($null -eq $Group.GroupDisplayName) -and ($null -eq $Group.GroupMembershipRules))) {
+        Write-Host "Creating Azure AD Group: $($Group.GroupDisplayName)" -ForegroundColor Green
+
+        # Get group information to variables
+        if (-not (($null -eq $Group.GroupDisplayName))) {
             
             $Groupname = $Group.GroupDisplayName
             $GroupDesc = $Group.GroupDescription
-            $GroupQuery = $Group.GroupMembershipRule
             $GroupOwn = Find-AzureADUser ($Group.GroupOwner)
             $confirmGroup = "N"
     
         }
         else {
             
-            Write-Host "Can not create Group. `nGroup definition in file should specify rules and name. Please verify files and headers in file" -ForegroundColor Red
+            Write-Host "Can not create Group. `nGroup definition in file should specify a name. Please verify informations and headers in file" -ForegroundColor Red
             continue
         }
+
+        # In case of a Dynamic group, get the query rules to a variable and define GroupType variable as DynamicMembership
+        if (($Group.GroupMembershipType -eq "DU") -or ($Group.GroupMembershipType -eq "DD")) {
+
+            # Validate that query exists, assign variable needed or Dynamic Group
+            if (-not ($null -eq $Group.GroupMembershipRule)) {
+
+                $GroupQuery = $Group.GroupMembershipRule
+                $GroupTypes = "DynamicMembership"
+
+            }
+            else {
+            
+                Write-Host "Can not create Dynamic Group. `nDynamic Group definition should specify query rules. Please verify information and headers in file" -ForegroundColor Red
+                continue
+            }
     
+        }
+
+        #Get confirmation before creating group
         $confirmGroup = $(Write-Host "`tPlease confirm that you want to create Azure AD Group ""$Groupname"" (Y/N)?: " -ForegroundColor Green -NoNewline; Read-Host)
        
+
         if ($confirmGroup -eq "Y") {
 
             try {
 
-                $AzureGroup = New-AzureADMSGroup `
-                -DisplayName "$Groupname" `
-                -Description "$GroupDesc" `
-                -MailEnabled $false `
-                -SecurityEnabled $true `
-                -MailNickname "$($Groupname.replace(' ',''))" `
-                -GroupTypes "DynamicMembership" `
-                -MembershipRule "$GroupQuery" `
-                -MembershipRuleProcessingState 'On' `
-                -ErrorAction SilentlyContinue
+                # Keep it simple, 2 different complete commands, depending if group is Dynamic or Assigned
+                if ($Group.GroupMembershipType -eq "AA") {
+
+                    $AzureGroup = New-AzureADMSGroup `
+                    -DisplayName "$Groupname" `
+                    -Description "$GroupDesc" `
+                    -MailEnabled $false `
+                    -SecurityEnabled $true `
+                    -MailNickname "$($Groupname.replace(' ',''))" `
+                    -ErrorAction Stop
+
+                }
+                else {
+
+                    $AzureGroup = New-AzureADMSGroup `
+                    -DisplayName "$Groupname" `
+                    -Description "$GroupDesc" `
+                    -MailEnabled $false `
+                    -SecurityEnabled $true `
+                    -MailNickname "$($Groupname.replace(' ',''))" `
+                    -GroupTypes $GroupTypes `
+                    -MembershipRule "$GroupQuery" `
+                    -MembershipRuleProcessingState 'On' `
+                    -ErrorAction Stop
+
+                }
                 
             }
             catch {
@@ -217,6 +256,12 @@ foreach ($Group in $GroupsObj) {
         }
 
         
+    }
+
+    else {
+        Write-Host "`tAzure AD Group $Groupname was not created. You must specify Group Membership Type." -ForegroundColor Yellow
+        Write-Host "`tVerify Group file.`n`n" -ForegroundColor Yellow
+        Write-Host "`t   Group Type can be AA for assgined group, DD for Dynamic Device, DU for Dynamic User. `n`t   Please verify files and header." -ForegroundColor Yellow
     }
 
 
