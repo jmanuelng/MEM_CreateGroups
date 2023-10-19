@@ -1,36 +1,44 @@
 <#
 
 .DESCRIPTION
-    Create Dynamic AzureAD groups from CSV file. Can use "GroupsFile" as parameter for the name of CSV file with the list of groups to create, file should be on same directory.
+    Create Dynamic AzureAD groups from CSV file. Can use "GroupsFile" as parameter for the name of CSV file with the list of groups to create, file should be on same directory. 
+    It can operate on a specified tenant or the default tenant associated with the provided credentials.
 
 .NOTES
-
-    Import filename and path should be provided as a parameter. Default path is the execution path, default filename "MEM_CreateGroups.csv"
-    Import file should, at least, contain the following headers (names should be exactly like that): "GroupType", "GroupDisplayName", "GroupsDescription", "GroupMembershipType", "GroupsMembershipRule", "GroupOwner"
-    The only strings accepted for "GroupMembershipType" are "AA" for assigned groups, "DD" for Dynamic Device groups and "DU" for Dynamic User groups.
+    - The script now accepts an optional "TenantId" parameter to specify the Azure AD tenant where the groups will be created.
+    - Import filename and path should be provided as a parameter. The default path is the execution path, and the default filename is "MEM_CreateGroups.csv".
+    - The import file should contain the following headers: "GroupType", "GroupDisplayName", "GroupDescription", "GroupMembershipType", "GroupMembershipRule", "GroupOwner".
+    - Valid strings for "GroupMembershipType" are "AA" for assigned groups, "DD" for Dynamic Device groups, and "DU" for Dynamic User groups.
+    - The script checks for local administrative privileges and also verifies the AzureADPreview PowerShell module is installed.
 
     Script created or based on Alex Durante's (tw:@ADurrante) Blog:
     Source: https://letsconfigmgr.com/bulk-create-intune-groups-script/#The_Script
 
 .EXAMPLE
-
     .\MEM_CreateGroups.ps1 -GroupsFile "MEM_CreateGroups.csv"
-    Creates all groups listed un "MEM_Groups.csv" file
+    Creates all groups listed in "MEM_CreateGroups.csv" file in the default tenant.
 
     .\MEM_CreateGroups.ps1 -GroupsFile "MEM_CreateGroups.csv" -GroupsConfirm "Y"
-    Creates groups in "MEM_Groups.csv" file, does not request cofirmation before creating groups.
+    Creates groups in "MEM_CreateGroups.csv" file in the default tenant, does not request confirmation before creating groups.
 
+    .\MEM_CreateGroups.ps1 -GroupsFile "MEM_CreateGroups.csv" -TenantId "your-tenant-id"
+    Creates all groups listed in "MEM_CreateGroups.csv" file in the specified tenant with ID "your-tenant-id".
+
+    .\MEM_CreateGroups.ps1 -GroupsFile "MEM_CreateGroups.csv" -GroupsConfirm "Y" -TenantId "your-tenant-id"
+    Creates groups in "MEM_CreateGroups.csv" file in the specified tenant with ID "your-tenant-id", does not request confirmation before creating groups.
 
 #>
+
 
 #region Settings
 
 param (
         [Parameter()]
-        [string]$GroupsFile = "MEM_CreateGroups.csv",
-        # Confirm has to be "N" to skip confirmation for each Group to be created
-        [string]$GroupsConfirm = "Y"
-    )
+    [string]$GroupsFile = "MEM_CreateGroups.csv",
+    # Confirm has to be "N" to skip confirmation for each Group to be created
+    [string]$GroupsConfirm = "Y",
+    [string]$TenantId = $null  # Add this parameter, default to $null
+)
 
 $Error.Clear()
 $errMessage = ""
@@ -48,7 +56,7 @@ Write-Host "`n`n"
 #region Functions
 
 # Verify if running as Local Administrator
-Function Test-IsAdmin {
+function Test-IsAdmin {
 
     If (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
 
@@ -68,24 +76,48 @@ Function Test-IsAdmin {
 }
 
 
-# Install Azure AD Preview PS Module
+# Install Azure AD Preview PS Module and connect to Tenant.
 function ConnectToAAD {
+    param (
+        [string]$TenantId = $null  # Initialize TenantId to $null by default
+    )
 
-    if (Get-Module -ListAvailable -Name AzureADPreview) {
-    } 
-    else {
-        Write-Host "Installing AzureAD PowerShell Module" -ForegroundColor Green       
-        Install-Module -Name AzureADPreview -AllowClobber -Force
+    # Check if AzureADPreview module is installed
+    if (-not (Get-Module -ListAvailable -Name AzureADPreview)) {
+        Write-Host "Installing AzureAD PowerShell Module" -ForegroundColor Green
+        try {
+            Install-Module -Name AzureADPreview -AllowClobber -Force -Scope CurrentUser
+        } catch {
+            Write-Host "Failed to install AzureADPreview Module. Please install it manually and rerun the script." -ForegroundColor Red
+            return $false
+        }
     }
-    
+
     # Import Azure AD Preview Module
     Write-Host "Importing AzureADPreview Module" -ForegroundColor Green
-    Import-Module AzureADPreview -Force
-    
+    try {
+        Import-Module AzureADPreview -Force
+    } catch {
+        Write-Host "Failed to import AzureADPreview Module. Please resolve the issue and rerun the script." -ForegroundColor Red
+        return $false
+    }
+
     # Sign into Azure AD
     Write-Host "Please log into AzureAD" -ForegroundColor Green
-    Connect-AzureAD
-    
+    try {
+        if ($null -eq $TenantId -or $TenantId -eq "") {
+            # Connect without TenantId if it's null or empty
+            Connect-AzureAD
+        } else {
+            # Connect with TenantId
+            Connect-AzureAD -TenantId $TenantId
+        }
+    } catch {
+        Write-Host "Failed to connect to Azure AD. Please check your credentials or TenantId and try again." -ForegroundColor Red
+        return $false
+    }
+
+    return $true
 }
 
 
@@ -158,8 +190,14 @@ catch {
     Exit 1
 }
 
-#Connect to Azure AD
-ConnectToAAD
+# Connect to Azure AD
+$connectionResult = ConnectToAAD -TenantId $TenantId  # Pass the TenantId parameter
+
+# Check if connection was successful
+if ($connectionResult -eq $false) {
+    Write-Host "Failed to connect to Azure AD. Exiting script." -ForegroundColor Red
+    exit 1  # Exit the script with an error code
+}
 
 
 $GroupsObj | Select-Object GroupType, GroupDisplayName, GroupDescription, GroupMembershipType, GroupMembershipRule, GroupOwner | Format-Table
